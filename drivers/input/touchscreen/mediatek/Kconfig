@@ -92,7 +92,6 @@ config TOUCHSCREEN_MTK_NT36xxx
 source "drivers/input/touchscreen/mediatek/NT36xxx/Kconfig"
 
 source "drivers/input/touchscreen/mediatek/ft3418_i2c/Kconfig"
-source "drivers/input/touchscreen/mediatek/xiaomi/Kconfig"
 
 config TOUCHSCREEN_FTS
     bool "Focaltech Touchscreen"
