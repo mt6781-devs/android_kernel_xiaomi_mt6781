@@ -168,10 +168,14 @@ signed int battery_get_uisoc(void)
 signed int battery_get_bat_temperature(void)
 {
 	/* TODO */
+#if 1
 	if (is_battery_init_done())
 		return force_get_tbat(true);
 	else
 		return -127;
+#else
+		return 25;
+#endif
 }
 
 signed int battery_get_ibus(void)
@@ -181,7 +185,7 @@ signed int battery_get_ibus(void)
 
 signed int battery_get_vbus(void)
 {
-	return pmic_get_vbus();
+	return charger_get_vbus();
 }
 
 signed int battery_get_bat_avg_current(void)

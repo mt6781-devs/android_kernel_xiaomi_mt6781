@@ -19,6 +19,7 @@
 //#include <mt-plat/upmu_common.h>
 #include <linux/string.h>
 #include <linux/delay.h>
+#include <linux/board_id.h>
 
 static void __iomem *pwrap_base;
 
@@ -1500,10 +1501,19 @@ short is_clkbuf_bringup(void)
 
 void clk_buf_post_init(void)
 {
+	int project_number;
+	project_number = board_id_get_hwversion_product_num();
 #ifndef CONFIG_NFC_CHIP_SUPPORT
+
 	/* no need to use XO_NFC if no NFC */
 	clk_buf_ctrl_internal(CLK_BUF_NFC, CLK_BUF_FORCE_OFF);
 	CLK_BUF3_STATUS = CLOCK_BUFFER_DISABLE;
+#else
+	if (project_number == 1 || project_number == 3) {
+		/* no need to use XO_NFC if no NFC */
+		clk_buf_ctrl_internal(CLK_BUF_NFC, CLK_BUF_FORCE_OFF);
+		CLK_BUF3_STATUS = CLOCK_BUFFER_DISABLE;
+	}
 #endif
 #ifdef CLKBUF_USE_BBLPM
 	if (bblpm_switch == 2) {
