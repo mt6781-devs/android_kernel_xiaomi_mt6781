@@ -147,7 +147,7 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 	if (err)
 		return err;
 
-	err = f2fs_get_node_info(fio.sbi, dn->nid, &ni, false);
+	err = f2fs_get_node_info(fio.sbi, dn->nid, &ni);
 	if (err) {
 		f2fs_truncate_data_blocks_range(dn, 1);
 		f2fs_put_dnode(dn);
@@ -417,18 +417,17 @@ static int f2fs_move_inline_dirents(struct inode *dir, struct page *ipage,
 
 	dentry_blk = page_address(page);
 
+	/*
+	 * Start by zeroing the full block, to ensure that all unused space is
+	 * zeroed and no uninitialized memory is leaked to disk.
+	 */
+	memset(dentry_blk, 0, F2FS_BLKSIZE);
+
 	make_dentry_ptr_inline(dir, &src, inline_dentry);
 	make_dentry_ptr_block(dir, &dst, dentry_blk);
 
 	/* copy data from inline dentry block to new dentry block */
 	memcpy(dst.bitmap, src.bitmap, src.nr_bitmap);
-	memset(dst.bitmap + src.nr_bitmap, 0, dst.nr_bitmap - src.nr_bitmap);
-	/*
-	 * we do not need to zero out remainder part of dentry and filename
-	 * field, since we have used bitmap for marking the usage status of
-	 * them, besides, we can also ignore copying/zeroing reserved space
-	 * of dentry block, because them haven't been used so far.
-	 */
 	memcpy(dst.dentry, src.dentry, SIZE_OF_DIR_ENTRY * src.max);
 	memcpy(dst.filename, src.filename, src.max * F2FS_SLOT_LEN);
 
@@ -638,7 +637,7 @@ int f2fs_add_inline_entry(struct inode *dir, const struct f2fs_filename *fname,
 	}
 
 	if (inode) {
-		f2fs_down_write(&F2FS_I(inode)->i_sem);
+		down_write(&F2FS_I(inode)->i_sem);
 		page = f2fs_init_inode_metadata(inode, dir, fname, ipage);
 		if (IS_ERR(page)) {
 			err = PTR_ERR(page);
@@ -667,7 +666,7 @@ int f2fs_add_inline_entry(struct inode *dir, const struct f2fs_filename *fname,
 	f2fs_update_parent_metadata(dir, inode, 0);
 fail:
 	if (inode)
-		f2fs_up_write(&F2FS_I(inode)->i_sem);
+		up_write(&F2FS_I(inode)->i_sem);
 out:
 	f2fs_put_page(ipage, 1);
 	return err;
@@ -795,7 +794,7 @@ int f2fs_inline_data_fiemap(struct inode *inode,
 		ilen = start + len;
 	ilen -= start;
 
-	err = f2fs_get_node_info(F2FS_I_SB(inode), inode->i_ino, &ni, false);
+	err = f2fs_get_node_info(F2FS_I_SB(inode), inode->i_ino, &ni);
 	if (err)
 		goto out;
 

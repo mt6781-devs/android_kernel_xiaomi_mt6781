@@ -183,7 +183,7 @@ static inline void set_file_temperature(struct f2fs_sb_info *sbi, struct inode *
 	__u8 (*extlist)[F2FS_EXTENSION_LEN] = sbi->raw_super->extension_list;
 	int i, cold_count, hot_count;
 
-	f2fs_down_read(&sbi->sb_lock);
+	down_read(&sbi->sb_lock);
 
 	cold_count = le32_to_cpu(sbi->raw_super->extension_count);
 	hot_count = sbi->raw_super->hot_ext_count;
@@ -193,7 +193,7 @@ static inline void set_file_temperature(struct f2fs_sb_info *sbi, struct inode *
 			break;
 	}
 
-	f2fs_up_read(&sbi->sb_lock);
+	up_read(&sbi->sb_lock);
 
 	if (i == cold_count + hot_count)
 		return;
@@ -284,19 +284,19 @@ static void set_compress_inode(struct f2fs_sb_info *sbi, struct inode *inode,
 			!f2fs_may_compress(inode))
 		return;
 
-	f2fs_down_read(&sbi->sb_lock);
+	down_read(&sbi->sb_lock);
 
 	cold_count = le32_to_cpu(sbi->raw_super->extension_count);
 	hot_count = sbi->raw_super->hot_ext_count;
 
 	for (i = cold_count; i < cold_count + hot_count; i++) {
 		if (is_extension_exist(name, extlist[i])) {
-			f2fs_up_read(&sbi->sb_lock);
+			up_read(&sbi->sb_lock);
 			return;
 		}
 	}
 
-	f2fs_up_read(&sbi->sb_lock);
+	up_read(&sbi->sb_lock);
 
 	ext = F2FS_OPTION(sbi).extensions;
 
@@ -736,7 +736,7 @@ static int f2fs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	inode->i_op = &f2fs_dir_inode_operations;
 	inode->i_fop = &f2fs_dir_operations;
 	inode->i_mapping->a_ops = &f2fs_dblock_aops;
-	inode_nohighmem(inode);
+	mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
 
 	set_inode_flag(inode, FI_INC_LINK);
 	f2fs_lock_op(sbi);
@@ -1000,11 +1000,11 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		new_page = NULL;
 
 		new_inode->i_ctime = current_time(new_inode);
-		f2fs_down_write(&F2FS_I(new_inode)->i_sem);
+		down_write(&F2FS_I(new_inode)->i_sem);
 		if (old_dir_entry)
 			f2fs_i_links_write(new_inode, false);
 		f2fs_i_links_write(new_inode, false);
-		f2fs_up_write(&F2FS_I(new_inode)->i_sem);
+		up_write(&F2FS_I(new_inode)->i_sem);
 
 		if (!new_inode->i_nlink)
 			f2fs_add_orphan_inode(new_inode);
@@ -1025,13 +1025,13 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			f2fs_i_links_write(new_dir, true);
 	}
 
-	f2fs_down_write(&F2FS_I(old_inode)->i_sem);
+	down_write(&F2FS_I(old_inode)->i_sem);
 	if (!old_dir_entry || whiteout)
 		file_lost_pino(old_inode);
 	else
 		/* adjust dir's i_pino to pass fsck check */
 		f2fs_i_pino_write(old_inode, new_dir->i_ino);
-	f2fs_up_write(&F2FS_I(old_inode)->i_sem);
+	up_write(&F2FS_I(old_inode)->i_sem);
 
 	old_inode->i_ctime = current_time(old_inode);
 	f2fs_mark_inode_dirty_sync(old_inode, false);
@@ -1053,7 +1053,7 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	}
 
 	if (old_dir_entry) {
-		if (old_dir != new_dir && !whiteout)
+		if (old_dir != new_dir)
 			f2fs_set_link(old_inode, old_dir_entry,
 						old_dir_page, new_dir);
 		else
@@ -1191,38 +1191,38 @@ static int f2fs_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/* update directory entry info of old dir inode */
 	f2fs_set_link(old_dir, old_entry, old_page, new_inode);
 
-	f2fs_down_write(&F2FS_I(old_inode)->i_sem);
+	down_write(&F2FS_I(old_inode)->i_sem);
 	if (!old_dir_entry)
 		file_lost_pino(old_inode);
 	else
 		/* adjust dir's i_pino to pass fsck check */
 		f2fs_i_pino_write(old_inode, new_dir->i_ino);
-	f2fs_up_write(&F2FS_I(old_inode)->i_sem);
+	up_write(&F2FS_I(old_inode)->i_sem);
 
 	old_dir->i_ctime = current_time(old_dir);
 	if (old_nlink) {
-		f2fs_down_write(&F2FS_I(old_dir)->i_sem);
+		down_write(&F2FS_I(old_dir)->i_sem);
 		f2fs_i_links_write(old_dir, old_nlink > 0);
-		f2fs_up_write(&F2FS_I(old_dir)->i_sem);
+		up_write(&F2FS_I(old_dir)->i_sem);
 	}
 	f2fs_mark_inode_dirty_sync(old_dir, false);
 
 	/* update directory entry info of new dir inode */
 	f2fs_set_link(new_dir, new_entry, new_page, old_inode);
 
-	f2fs_down_write(&F2FS_I(new_inode)->i_sem);
+	down_write(&F2FS_I(new_inode)->i_sem);
 	if (!new_dir_entry)
 		file_lost_pino(new_inode);
 	else
 		/* adjust dir's i_pino to pass fsck check */
 		f2fs_i_pino_write(new_inode, old_dir->i_ino);
-	f2fs_up_write(&F2FS_I(new_inode)->i_sem);
+	up_write(&F2FS_I(new_inode)->i_sem);
 
 	new_dir->i_ctime = current_time(new_dir);
 	if (new_nlink) {
-		f2fs_down_write(&F2FS_I(new_dir)->i_sem);
+		down_write(&F2FS_I(new_dir)->i_sem);
 		f2fs_i_links_write(new_dir, new_nlink > 0);
-		f2fs_up_write(&F2FS_I(new_dir)->i_sem);
+		up_write(&F2FS_I(new_dir)->i_sem);
 	}
 	f2fs_mark_inode_dirty_sync(new_dir, false);
 
@@ -1299,9 +1299,18 @@ static const char *f2fs_encrypted_get_link(struct dentry *dentry,
 	return target;
 }
 
+static int f2fs_encrypted_symlink_getattr(const struct path *path,
+					  struct kstat *stat, u32 request_mask,
+					  unsigned int query_flags)
+{
+	f2fs_getattr(path, stat, request_mask, query_flags);
+
+	return fscrypt_symlink_getattr(path, stat);
+}
+
 const struct inode_operations f2fs_encrypted_symlink_inode_operations = {
 	.get_link       = f2fs_encrypted_get_link,
-	.getattr	= f2fs_getattr,
+	.getattr	= f2fs_encrypted_symlink_getattr,
 	.setattr	= f2fs_setattr,
 	.listxattr	= f2fs_listxattr,
 };

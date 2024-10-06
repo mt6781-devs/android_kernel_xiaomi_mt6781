@@ -1396,6 +1396,7 @@ page_owner=on loop.max_part=7";
 		compatible = "mediatek,mddriver";
 		mediatek,mdhif_type = <6>; /* bit0~3: CLDMA|CCIF|DPMAIF */
 		mediatek,md_id = <0>;
+		mediatek,offset_apon_md1 = <0x2844>;
 		mediatek,cldma_capability = <14>;
 		reg = <0 0x10209000 0 0x1000>, /*AP_CCIF_BASE*/
 			<0 0x1020a000 0 0x1000>; /*MD_CCIF_BASE*/
@@ -2669,19 +2670,19 @@ page_owner=on loop.max_part=7";
 				<30>; /* in_size */
 
 		/* feature, frequecy, coreid */
-		scp_feature_tbl = < 0   5 1>,	/* vow */
+		scp_feature_tbl = < 0   5 0>,	/* vow */
 				  < 1  29 0>,	/* sensor */
 				  < 2  26 0>,	/* flp */
 				  < 3   0 0>,	/* rtos */
-				  < 4 200 1>,	/* speaker */
+				  < 4 200 0>,	/* speaker */
 				  < 5   0 0>,	/* vcore */
-				  < 6 120 1>,	/* barge in */
-				  < 7  10 1>,	/* vow dump */
-				  < 8  80 1>,	/* vow vendor M */
-				  < 9  43 1>,	/* vow vendor A */
-				  <10  22 1>,	/* vow vendor G */
-				  <11  20 1>,	/* vow dual mic */
-				  <12 135 1>,	/* vow dual mic barge in */
+				  < 6 120 0>,	/* barge in */
+				  < 7  10 0>,	/* vow dump */
+				  < 8  80 0>,	/* vow vendor M */
+				  < 9  43 0>,	/* vow vendor A */
+				  <10  22 0>,	/* vow vendor G */
+				  <11  20 0>,	/* vow dual mic */
+				  <12 135 0>,	/* vow dual mic barge in */
 				  <13 200 0>;	/* ultrasound */
 
 		secure_dump = "disable";	/* disabled in default */

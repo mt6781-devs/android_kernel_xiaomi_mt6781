@@ -58,6 +58,7 @@ static DEFINE_MUTEX(layering_info_lock);
 #endif
 #define RSZ_IN_MAX_HEIGHT 4096
 #define DISP_RSZ_LAYER_NUM 2
+#define DISP_LAYER_RULE_MAX_NUM 1024
 
 static struct {
 	enum LYE_HELPER_OPT opt;
@@ -1837,6 +1838,8 @@ static int dispatch_ovl_id(struct drm_mtk_layering_info *disp_info,
 
 		hrt_disp_num--;
 		for (disp_idx = HRT_TYPE_NUM - 1; disp_idx >= 0; disp_idx--) {
+			if (disp_info->layer_num[disp_idx] <= 0)
+				continue;
 			if (!has_hrt_limit(disp_info, disp_idx))
 				continue;
 			valid_ovl_cnt =
@@ -1958,8 +1961,7 @@ static int check_disp_info(struct drm_mtk_layering_info *disp_info)
 		}
 
 		if ((ghead < 0 && gtail >= 0) || (gtail < 0 && ghead >= 0) || (gtail < ghead) ||
-			(gtail >= layer_num)) {
-			dump_disp_info(disp_info, DISP_DEBUG_LEVEL_ERR);
+		    (layer_num > 0 && gtail >= layer_num)) {
 			DDPPR_ERR("[HRT] gles invalid, disp:%d, head:%d, tail:%d\n", disp_idx,
 				  disp_info->gles_head[disp_idx], disp_info->gles_tail[disp_idx]);
 			return -1;
@@ -1985,7 +1987,8 @@ _copy_layer_info_from_disp(struct drm_mtk_layering_info *disp_info_user,
 	unsigned long int layer_size = 0;
 	int ret = 0, layer_num = 0;
 
-	if (l_info->layer_num[disp_idx] <= 0) {
+	if (l_info->layer_num[disp_idx] <= 0 ||
+			l_info->layer_num[disp_idx] > DISP_LAYER_RULE_MAX_NUM) {
 		/* direct skip */
 		return 0;
 	}

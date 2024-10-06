@@ -114,7 +114,7 @@ enum {
 };
 
 static int hvdcp_type_tmp = 0;
-int get_charger_type()
+int get_charger_type(void)
 {
 	return hvdcp_type_tmp;
 }

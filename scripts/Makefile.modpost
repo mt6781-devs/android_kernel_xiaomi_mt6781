@@ -41,7 +41,7 @@ PHONY := _modpost
 _modpost: __modpost
 
 include include/config/auto.conf
-include scripts/Kbuild.include
+include $(srctree)/scripts/Kbuild.include
 
 # When building external modules load the Kbuild file to retrieve EXTRA_SYMBOLS info
 ifneq ($(KBUILD_EXTMOD),)
@@ -51,8 +51,7 @@ obj := $(KBUILD_EXTMOD)
 src := $(obj)
 
 # Include the module's Makefile to find KBUILD_EXTRA_SYMBOLS
-include $(if $(wildcard $(KBUILD_EXTMOD)/Kbuild), \
-             $(KBUILD_EXTMOD)/Kbuild, $(KBUILD_EXTMOD)/Makefile)
+include $(if $(wildcard $(src)/Kbuild), $(src)/Kbuild, $(src)/Makefile)
 endif
 
 include scripts/Makefile.lib

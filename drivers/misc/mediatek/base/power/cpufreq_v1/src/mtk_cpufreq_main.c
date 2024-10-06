@@ -1330,12 +1330,7 @@ static struct freq_attr *_mt_cpufreq_attr[] = {
 };
 
 static struct cpufreq_driver _mt_cpufreq_driver = {
-#if defined(CONFIG_MTK_PLAT_MT6885_EMULATION) || defined(CONFIG_MACH_MT6893) \
-	|| defined(CONFIG_MACH_MT6833)
 	.flags = CPUFREQ_ASYNC_NOTIFICATION | CPUFREQ_HAVE_GOVERNOR_PER_POLICY,
-#else
-	.flags = CPUFREQ_ASYNC_NOTIFICATION,
-#endif
 	.verify = _mt_cpufreq_verify,
 	.target = _mt_cpufreq_target,
 	.init = _mt_cpufreq_init,
@@ -1442,6 +1437,8 @@ static void _hps_request_wrapper(struct mt_cpu_dvfs *p,
 			aee_record_cpu_dvfs_cb(9);
 #endif
 			act_p->mt_policy = NULL;
+			tag_pr_info("[CPU DVFS] policy of %s set NULL on cpu_down\n",
+				cpu_dvfs_get_name(p));
 			aee_record_cpu_dvfs_cb(10);
 		}
 		break;

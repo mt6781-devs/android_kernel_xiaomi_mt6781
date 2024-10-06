@@ -78,7 +78,7 @@ SCHED_FEAT(WARN_DOUBLE_CLOCK, false)
 SCHED_FEAT(RT_PUSH_IPI, true)
 #endif
 
-SCHED_FEAT(RT_RUNTIME_SHARE, true)
+SCHED_FEAT(RT_RUNTIME_SHARE, false)
 SCHED_FEAT(LB_MIN, false)
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 
@@ -115,11 +115,6 @@ SCHED_FEAT(SCHED_MTK_EAS, true)
 #else
 SCHED_FEAT(SCHED_MTK_EAS, false)
 #endif
-
-/*
- * Request max frequency from schedutil whenever a RT task is running.
- */
-SCHED_FEAT(SUGOV_RT_MAX_FREQ, false)
 
 /*
  * Apply schedtune boost hold to tasks of all sched classes.

@@ -69,9 +69,6 @@ struct stack_record {
 	struct stack_record *next;	/* Link in the hashtable */
 	u32 hash;			/* Hash in the hastable */
 	u32 size;			/* Number of frames in the stack */
-#ifdef CONFIG_PAGE_OWNER
-	u32 hit;
-#endif
 	union handle_parts handle;
 	unsigned long entries[1];	/* Variable-sized array of entries. */
 };
@@ -82,11 +79,6 @@ static int depot_index;
 static int next_slab_inited;
 static size_t depot_offset;
 static DEFINE_RAW_SPINLOCK(depot_lock);
-#ifdef CONFIG_PAGE_OWNER
-static struct stack_record *max_found;
-static DEFINE_SPINLOCK(max_found_lock);
-#endif
-
 
 static bool init_stack_slab(void **prealloc)
 {
@@ -149,9 +141,6 @@ static struct stack_record *depot_alloc_stack(unsigned long *entries, int size,
 
 	stack->hash = hash;
 	stack->size = size;
-#ifdef CONFIG_PAGE_OWNER
-	stack->hit = 0;
-#endif
 	stack->handle.slabindex = depot_index;
 	stack->handle.offset = depot_offset >> STACK_ALLOC_ALIGN;
 	stack->handle.valid = 1;
@@ -222,43 +211,6 @@ void depot_fetch_stack(depot_stack_handle_t handle, struct stack_trace *trace)
 }
 EXPORT_SYMBOL_GPL(depot_fetch_stack);
 
-#ifdef CONFIG_PAGE_OWNER
-void depot_hit_stack(depot_stack_handle_t handle, struct stack_trace *trace,
-		int cnt)
-{
-	union handle_parts parts = { .handle = handle };
-	void *slab = stack_slabs[parts.slabindex];
-	size_t offset = parts.offset << STACK_ALLOC_ALIGN;
-	struct stack_record *stack = slab + offset;
-	unsigned long flags;
-
-	stack->hit += cnt;
-	spin_lock_irqsave(&max_found_lock, flags);
-	if ((!max_found) || (stack->hit > max_found->hit))
-		max_found = stack;
-	spin_unlock_irqrestore(&max_found_lock, flags);
-}
-
-void show_max_hit_page(void)
-{
-	unsigned long entries[16];
-	unsigned long flags;
-	struct stack_trace trace = {
-		.nr_entries = 0,
-		.entries = entries,
-		.max_entries = 16,
-		.skip = 0
-	};
-	spin_lock_irqsave(&max_found_lock, flags);
-	if (max_found) {
-		depot_fetch_stack(max_found->handle.handle, &trace);
-		pr_info("max found hit=%d\n", max_found->hit);
-		print_stack_trace(&trace, 2);
-	}
-	spin_unlock_irqrestore(&max_found_lock, flags);
-}
-#endif
-
 /**
  * depot_save_stack - save stack in a stack depot.
  * @trace - the stacktrace to save.
@@ -304,10 +256,10 @@ depot_stack_handle_t depot_save_stack(struct stack_trace *trace,
 		/*
 		 * Zero out zone modifiers, as we don't have specific zone
 		 * requirements. Keep the flags related to allocation in atomic
-		 * contexts and I/O.
+		 * contexts, I/O, nolockdep.
 		 */
 		alloc_flags &= ~GFP_ZONEMASK;
-		alloc_flags &= (GFP_ATOMIC | GFP_KERNEL);
+		alloc_flags &= (GFP_ATOMIC | GFP_KERNEL | __GFP_NOLOCKDEP);
 		alloc_flags |= __GFP_NOWARN;
 		page = alloc_pages(alloc_flags, STACK_ALLOC_ORDER);
 		if (page)

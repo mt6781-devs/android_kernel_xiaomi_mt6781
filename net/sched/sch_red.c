@@ -63,6 +63,7 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 {
 	struct red_sched_data *q = qdisc_priv(sch);
 	struct Qdisc *child = q->qdisc;
+	unsigned int len;
 	int ret;
 
 	q->vars.qavg = red_calc_qavg(&q->parms,
@@ -98,9 +99,10 @@ static int red_enqueue(struct sk_buff *skb, struct Qdisc *sch,
 		break;
 	}
 
+	len = qdisc_pkt_len(skb);
 	ret = qdisc_enqueue(skb, child, to_free);
 	if (likely(ret == NET_XMIT_SUCCESS)) {
-		qdisc_qstats_backlog_inc(sch, skb);
+		sch->qstats.backlog += len;
 		sch->q.qlen++;
 	} else if (net_xmit_drop_count(ret)) {
 		q->stats.pdrop++;
@@ -181,7 +183,7 @@ static void red_destroy(struct Qdisc *sch)
 
 	del_timer_sync(&q->adapt_timer);
 	red_offload(sch, false);
-	qdisc_destroy(q->qdisc);
+	qdisc_put(q->qdisc);
 }
 
 static const struct nla_policy red_policy[TCA_RED_MAX + 1] = {
@@ -236,7 +238,7 @@ static int red_change(struct Qdisc *sch, struct nlattr *opt,
 	if (child) {
 		qdisc_tree_reduce_backlog(q->qdisc, q->qdisc->q.qlen,
 					  q->qdisc->qstats.backlog);
-		qdisc_destroy(q->qdisc);
+		qdisc_put(q->qdisc);
 		q->qdisc = child;
 	}
 

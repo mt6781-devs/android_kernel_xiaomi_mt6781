@@ -390,9 +390,12 @@ static int ext4_valid_extent_idx(struct inode *inode,
 
 static int ext4_valid_extent_entries(struct inode *inode,
 				struct ext4_extent_header *eh,
-				int depth)
+				ext4_fsblk_t *pblk, int depth)
 {
 	unsigned short entries;
+	ext4_lblk_t lblock = 0;
+	ext4_lblk_t prev = 0;
+
 	if (eh->eh_entries == 0)
 		return 1;
 
@@ -403,32 +406,36 @@ static int ext4_valid_extent_entries(struct inode *inode,
 		struct ext4_extent *ext = EXT_FIRST_EXTENT(eh);
 		struct ext4_super_block *es = EXT4_SB(inode->i_sb)->s_es;
 		ext4_fsblk_t pblock = 0;
-		ext4_lblk_t lblock = 0;
-		ext4_lblk_t prev = 0;
-		int len = 0;
 		while (entries) {
 			if (!ext4_valid_extent(inode, ext))
 				return 0;
 
 			/* Check for overlapping extents */
 			lblock = le32_to_cpu(ext->ee_block);
-			len = ext4_ext_get_actual_len(ext);
 			if ((lblock <= prev) && prev) {
 				pblock = ext4_ext_pblock(ext);
 				es->s_last_error_block = cpu_to_le64(pblock);
 				return 0;
 			}
+			prev = lblock + ext4_ext_get_actual_len(ext) - 1;
 			ext++;
 			entries--;
-			prev = lblock + len - 1;
 		}
 	} else {
 		struct ext4_extent_idx *ext_idx = EXT_FIRST_INDEX(eh);
 		while (entries) {
 			if (!ext4_valid_extent_idx(inode, ext_idx))
 				return 0;
+
+			/* Check for overlapping index extents */
+			lblock = le32_to_cpu(ext_idx->ei_block);
+			if ((lblock <= prev) && prev) {
+				*pblk = ext4_idx_pblock(ext_idx);
+				return 0;
+			}
 			ext_idx++;
 			entries--;
+			prev = lblock;
 		}
 	}
 	return 1;
@@ -462,7 +469,7 @@ static int __ext4_ext_check(const char *function, unsigned int line,
 		error_msg = "invalid eh_entries";
 		goto corrupted;
 	}
-	if (!ext4_valid_extent_entries(inode, eh, depth)) {
+	if (!ext4_valid_extent_entries(inode, eh, &pblk, depth)) {
 		error_msg = "invalid extent entries";
 		goto corrupted;
 	}
@@ -990,6 +997,11 @@ static int ext4_ext_insert_index(handle_t *handle, struct inode *inode,
 		ix = curp->p_idx;
 	}
 
+	if (unlikely(ix > EXT_MAX_INDEX(curp->p_hdr))) {
+		EXT4_ERROR_INODE(inode, "ix > EXT_MAX_INDEX!");
+		return -EFSCORRUPTED;
+	}
+
 	len = EXT_LAST_INDEX(curp->p_hdr) - ix + 1;
 	BUG_ON(len < 0);
 	if (len > 0) {
@@ -997,11 +1009,6 @@ static int ext4_ext_insert_index(handle_t *handle, struct inode *inode,
 				"move %d indices from 0x%p to 0x%p\n",
 				logical, len, ix, ix + 1);
 		memmove(ix + 1, ix, len * sizeof(struct ext4_extent_idx));
-	}
-
-	if (unlikely(ix > EXT_MAX_INDEX(curp->p_hdr))) {
-		EXT4_ERROR_INODE(inode, "ix > EXT_MAX_INDEX!");
-		return -EFSCORRUPTED;
 	}
 
 	ix->ei_block = cpu_to_le32(logical);
@@ -3266,7 +3273,10 @@ static int ext4_split_extent_at(handle_t *handle,
 		ext4_ext_mark_unwritten(ex2);
 
 	err = ext4_ext_insert_extent(handle, inode, ppath, &newex, flags);
-	if (err == -ENOSPC && (EXT4_EXT_MAY_ZEROOUT & split_flag)) {
+	if (err != -ENOSPC && err != -EDQUOT)
+		goto out;
+
+	if (EXT4_EXT_MAY_ZEROOUT & split_flag) {
 		if (split_flag & (EXT4_EXT_DATA_VALID1|EXT4_EXT_DATA_VALID2)) {
 			if (split_flag & EXT4_EXT_DATA_VALID1) {
 				err = ext4_ext_zeroout(inode, ex2);
@@ -3292,29 +3302,29 @@ static int ext4_split_extent_at(handle_t *handle,
 					      ext4_ext_pblock(&orig_ex));
 		}
 
-		if (err)
-			goto fix_extent_len;
-		/* update the extent length and mark as initialized */
-		ex->ee_len = cpu_to_le16(ee_len);
-		ext4_ext_try_to_merge(handle, inode, path, ex);
-		err = ext4_ext_dirty(handle, inode, path + path->p_depth);
-		if (err)
-			goto fix_extent_len;
-
-		/* update extent status tree */
-		err = ext4_zeroout_es(inode, &zero_ex);
-
-		goto out;
-	} else if (err)
-		goto fix_extent_len;
-
-out:
-	ext4_ext_show_leaf(inode, path);
-	return err;
+		if (!err) {
+			/* update the extent length and mark as initialized */
+			ex->ee_len = cpu_to_le16(ee_len);
+			ext4_ext_try_to_merge(handle, inode, path, ex);
+			err = ext4_ext_dirty(handle, inode, path + path->p_depth);
+			if (!err)
+				/* update extent status tree */
+				err = ext4_zeroout_es(inode, &zero_ex);
+			/* If we failed at this point, we don't know in which
+			 * state the extent tree exactly is so don't try to fix
+			 * length of the original extent as it may do even more
+			 * damage.
+			 */
+			goto out;
+		}
+	}
 
 fix_extent_len:
 	ex->ee_len = orig_ex.ee_len;
 	ext4_ext_dirty(handle, inode, path + path->p_depth);
+	return err;
+out:
+	ext4_ext_show_leaf(inode, path);
 	return err;
 }
 
@@ -3435,9 +3445,10 @@ static int ext4_ext_convert_to_initialized(handle_t *handle,
 	struct ext4_extent *ex, *abut_ex;
 	ext4_lblk_t ee_block, eof_block;
 	unsigned int ee_len, depth, map_len = map->m_len;
-	int allocated = 0, max_zeroout = 0;
 	int err = 0;
 	int split_flag = EXT4_EXT_DATA_VALID2;
+	int allocated = 0;
+	unsigned int max_zeroout = 0;
 
 	ext_debug("ext4_ext_convert_to_initialized: inode %lu, logical"
 		"block %llu, max_blocks %u\n", inode->i_ino,

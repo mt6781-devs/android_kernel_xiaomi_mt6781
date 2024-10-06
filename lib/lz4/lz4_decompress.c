@@ -141,9 +141,6 @@ static FORCE_INLINE int LZ4_decompress_generic(
 		 * space in the output for those 18 bytes earlier, upon
 		 * entering the shortcut (in other words, there is a
 		 * combined check for both stages).
-		 *
-		 * The & in the likely() below is intentionally not && so that
-		 * some compilers can produce better parallelized runtime code
 		 */
 		if ((endOnInput ? length != RUN_MASK : length <= 8)
 		   /*
@@ -271,8 +268,12 @@ static FORCE_INLINE int LZ4_decompress_generic(
 			ip += length;
 			op += length;
 
-			/* Necessarily EOF, due to parsing restrictions */
-			if (!partialDecoding || (cpy == oend))
+			/* Necessarily EOF when !partialDecoding.
+			 * When partialDecoding, it is EOF if we've either
+			 * filled the output buffer or
+			 * can't proceed with reading an offset for following match.
+			 */
+			if (!partialDecoding || (cpy == oend) || (ip >= (iend - 2)))
 				break;
 		} else {
 			/* may overwrite up to WILDCOPYLENGTH beyond cpy */
@@ -481,7 +482,7 @@ int LZ4_decompress_fast(const char *source, char *dest, int originalSize)
 
 /* ===== Instantiate a few more decoding cases, used more than once. ===== */
 
-static int LZ4_decompress_safe_withPrefix64k(const char *source, char *dest,
+int LZ4_decompress_safe_withPrefix64k(const char *source, char *dest,
 				      int compressedSize, int maxOutputSize)
 {
 	return LZ4_decompress_generic(source, dest,

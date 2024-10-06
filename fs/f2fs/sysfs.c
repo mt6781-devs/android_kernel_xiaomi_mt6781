@@ -11,7 +11,6 @@
 #include <linux/f2fs_fs.h>
 #include <linux/seq_file.h>
 #include <linux/unicode.h>
-#include <linux/ioprio.h>
 
 #include "f2fs.h"
 #include "segment.h"
@@ -35,7 +34,6 @@ enum {
 	FAULT_INFO_TYPE,	/* struct f2fs_fault_info */
 #endif
 	RESERVED_BLOCKS,	/* struct f2fs_sb_info */
-	CPRC_INFO,	/* struct ckpt_req_control */
 };
 
 struct f2fs_attr {
@@ -72,8 +70,6 @@ static unsigned char *__struct_ptr(struct f2fs_sb_info *sbi, int struct_type)
 	else if (struct_type == STAT_INFO)
 		return (unsigned char *)F2FS_STAT(sbi);
 #endif
-	else if (struct_type == CPRC_INFO)
-		return (unsigned char *)&sbi->cprc_info;
 	return NULL;
 }
 
@@ -260,23 +256,6 @@ static ssize_t f2fs_sbi_show(struct f2fs_attr *a,
 		return len;
 	}
 
-	if (!strcmp(a->attr.name, "ckpt_thread_ioprio")) {
-		struct ckpt_req_control *cprc = &sbi->cprc_info;
-		int len = 0;
-		int class = IOPRIO_PRIO_CLASS(cprc->ckpt_thread_ioprio);
-		int data = IOPRIO_PRIO_DATA(cprc->ckpt_thread_ioprio);
-
-		if (class == IOPRIO_CLASS_RT)
-			len += scnprintf(buf + len, PAGE_SIZE - len, "rt,");
-		else if (class == IOPRIO_CLASS_BE)
-			len += scnprintf(buf + len, PAGE_SIZE - len, "be,");
-		else
-			return -EINVAL;
-
-		len += scnprintf(buf + len, PAGE_SIZE - len, "%d\n", data);
-		return len;
-	}
-
 	ui = (unsigned int *)(ptr + a->offset);
 
 	return sprintf(buf, "%u\n", *ui);
@@ -316,7 +295,7 @@ static ssize_t __sbi_store(struct f2fs_attr *a,
 		if (strlen(name) >= F2FS_EXTENSION_LEN)
 			return -EINVAL;
 
-		f2fs_down_write(&sbi->sb_lock);
+		down_write(&sbi->sb_lock);
 
 		ret = f2fs_update_extension_list(sbi, name, hot, set);
 		if (ret)
@@ -326,40 +305,8 @@ static ssize_t __sbi_store(struct f2fs_attr *a,
 		if (ret)
 			f2fs_update_extension_list(sbi, name, hot, !set);
 out:
-		f2fs_up_write(&sbi->sb_lock);
+		up_write(&sbi->sb_lock);
 		return ret ? ret : count;
-	}
-
-	if (!strcmp(a->attr.name, "ckpt_thread_ioprio")) {
-		const char *name = strim((char *)buf);
-		struct ckpt_req_control *cprc = &sbi->cprc_info;
-		int class;
-		long data;
-		int ret;
-
-		if (!strncmp(name, "rt,", 3))
-			class = IOPRIO_CLASS_RT;
-		else if (!strncmp(name, "be,", 3))
-			class = IOPRIO_CLASS_BE;
-		else
-			return -EINVAL;
-
-		name += 3;
-		ret = kstrtol(name, 10, &data);
-		if (ret)
-			return ret;
-		if (data >= IOPRIO_BE_NR || data < 0)
-			return -EINVAL;
-
-		cprc->ckpt_thread_ioprio = IOPRIO_PRIO_VALUE(class, data);
-		if (test_opt(sbi, MERGE_CHECKPOINT)) {
-			ret = set_task_ioprio(cprc->f2fs_issue_ckpt,
-					cprc->ckpt_thread_ioprio);
-			if (ret)
-				return ret;
-		}
-
-		return count;
 	}
 
 	ui = (unsigned int *)(ptr + a->offset);
@@ -511,6 +458,7 @@ enum feat_id {
 	FEAT_CASEFOLD,
 	FEAT_COMPRESSION,
 	FEAT_TEST_DUMMY_ENCRYPTION_V2,
+	FEAT_ENCRYPTED_CASEFOLD,
 };
 
 static ssize_t f2fs_feature_show(struct f2fs_attr *a,
@@ -532,6 +480,7 @@ static ssize_t f2fs_feature_show(struct f2fs_attr *a,
 	case FEAT_CASEFOLD:
 	case FEAT_COMPRESSION:
 	case FEAT_TEST_DUMMY_ENCRYPTION_V2:
+	case FEAT_ENCRYPTED_CASEFOLD:
 		return sprintf(buf, "supported\n");
 	}
 	return 0;
@@ -612,7 +561,6 @@ F2FS_RW_ATTR(FAULT_INFO_TYPE, f2fs_fault_info, inject_type, inject_type);
 #endif
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, data_io_flag, data_io_flag);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, node_io_flag, node_io_flag);
-F2FS_RW_ATTR(CPRC_INFO, ckpt_req_control, ckpt_thread_ioprio, ckpt_thread_ioprio);
 F2FS_GENERAL_RO_ATTR(dirty_segments);
 F2FS_GENERAL_RO_ATTR(free_segments);
 F2FS_GENERAL_RO_ATTR(lifetime_write_kbytes);
@@ -634,7 +582,10 @@ F2FS_GENERAL_RO_ATTR(avg_vblocks);
 #ifdef CONFIG_FS_ENCRYPTION
 F2FS_FEATURE_RO_ATTR(encryption, FEAT_CRYPTO);
 F2FS_FEATURE_RO_ATTR(test_dummy_encryption_v2, FEAT_TEST_DUMMY_ENCRYPTION_V2);
+#ifdef CONFIG_UNICODE
+F2FS_FEATURE_RO_ATTR(encrypted_casefold, FEAT_ENCRYPTED_CASEFOLD);
 #endif
+#endif /* CONFIG_FS_ENCRYPTION */
 #ifdef CONFIG_BLK_DEV_ZONED
 F2FS_FEATURE_RO_ATTR(block_zoned, FEAT_BLKZONED);
 #endif
@@ -696,7 +647,6 @@ static struct attribute *f2fs_attrs[] = {
 #endif
 	ATTR_LIST(data_io_flag),
 	ATTR_LIST(node_io_flag),
-	ATTR_LIST(ckpt_thread_ioprio),
 	ATTR_LIST(dirty_segments),
 	ATTR_LIST(free_segments),
 	ATTR_LIST(unusable),
@@ -722,7 +672,10 @@ static struct attribute *f2fs_feat_attrs[] = {
 #ifdef CONFIG_FS_ENCRYPTION
 	ATTR_LIST(encryption),
 	ATTR_LIST(test_dummy_encryption_v2),
+#ifdef CONFIG_UNICODE
+	ATTR_LIST(encrypted_casefold),
 #endif
+#endif /* CONFIG_FS_ENCRYPTION */
 #ifdef CONFIG_BLK_DEV_ZONED
 	ATTR_LIST(block_zoned),
 #endif

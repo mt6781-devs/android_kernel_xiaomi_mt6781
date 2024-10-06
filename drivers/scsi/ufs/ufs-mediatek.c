@@ -731,11 +731,10 @@ static int ufs_mtk_setup_ref_clk(struct ufs_hba *hba, bool on)
 		return 0;
 
 	if (on) {
-		#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
-			clk_buf_ctrl(CLK_BUF_UFS, on);
-		#else
-			ufs_mtk_ref_clk_notify(on, res);
-		#endif
+	#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
+		clk_buf_ctrl(CLK_BUF_UFS, on);
+	#endif
+		ufs_mtk_ref_clk_notify(on, res);
 		ufshcd_delay_us(host->ref_clk_ungating_wait_us, 10);
 	}
 
@@ -788,9 +787,8 @@ out:
 		ufshcd_delay_us(host->ref_clk_gating_wait_us, 10);
 	#if defined(CONFIG_MACH_MT6781) || defined(CONFIG_MACH_MT6785)
 		clk_buf_ctrl(CLK_BUF_UFS, on);
-	#else
-		ufs_mtk_ref_clk_notify(on, res);
 	#endif
+		ufs_mtk_ref_clk_notify(on, res);
 	}
 
 	return 0;
@@ -2030,6 +2028,29 @@ static int ufs_mtk_remove(struct platform_device *pdev)
 	return 0;
 }
 
+void ufshcd_mtk_shutdown(struct platform_device *pdev)
+{
+	struct ufs_hba *hba = platform_get_drvdata(pdev);
+	struct scsi_device *sdev;
+
+	/*
+	 * Quiesce all SCSI devices to prevent any non-PM requests sending
+	 * from block layer during and after shutdown.
+	 *
+	 * Note. Using scsi_autopm_get_device() instead of pm_runtime_disable()
+	 * is to prevent noisy message by below checking,
+	 * WARN_ON_ONCE(sdev->quiesced_by && sdev->quiesced_by != current);
+	 * This warning shows up if we try to quiesce a runtime-suspended
+	 * SCSI device. This is possible during our new shutdown flow.
+	 * Using scsi_autopm_get_device() to resume all SCSI devices first
+	 * can prevent it.
+	 */
+	shost_for_each_device(sdev, hba->host)
+		scsi_device_quiesce(sdev);
+
+	ufshcd_shutdown(hba);
+}
+
 static const struct dev_pm_ops ufs_mtk_pm_ops = {
 	.suspend         = ufshcd_pltfrm_suspend,
 	.resume          = ufshcd_pltfrm_resume,
@@ -2041,7 +2062,7 @@ static const struct dev_pm_ops ufs_mtk_pm_ops = {
 static struct platform_driver ufs_mtk_pltform = {
 	.probe      = ufs_mtk_probe,
 	.remove     = ufs_mtk_remove,
-	.shutdown   = ufshcd_pltfrm_shutdown,
+	.shutdown   = ufshcd_mtk_shutdown,
 	.driver = {
 		.name   = "ufshcd-mtk",
 		.pm     = &ufs_mtk_pm_ops,

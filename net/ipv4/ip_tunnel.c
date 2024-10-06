@@ -330,7 +330,7 @@ static int ip_tunnel_bind_dev(struct net_device *dev)
 	}
 
 	dev->needed_headroom = t_hlen + hlen;
-	mtu -= t_hlen;
+	mtu -= t_hlen + (dev->type == ARPHRD_ETHER ? dev->hard_header_len : 0);
 
 	if (mtu < IPV4_MIN_MTU)
 		mtu = IPV4_MIN_MTU;
@@ -361,6 +361,9 @@ static struct ip_tunnel *ip_tunnel_create(struct net *net,
 	t_hlen = nt->hlen + sizeof(struct iphdr);
 	dev->min_mtu = ETH_MIN_MTU;
 	dev->max_mtu = IP_MAX_MTU - t_hlen;
+	if (dev->type == ARPHRD_ETHER)
+		dev->max_mtu -= dev->hard_header_len;
+
 	ip_tunnel_add(itn, nt);
 	return nt;
 
@@ -502,13 +505,18 @@ static int tnl_update_pmtu(struct net_device *dev, struct sk_buff *skb,
 			    const struct iphdr *inner_iph)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
-	int pkt_size = skb->len - tunnel->hlen;
+	int pkt_size;
 	int mtu;
 
-	if (df)
+	pkt_size = skb->len - tunnel->hlen;
+	pkt_size -= dev->type == ARPHRD_ETHER ? dev->hard_header_len : 0;
+
+	if (df) {
 		mtu = dst_mtu(&rt->dst) - (sizeof(struct iphdr) + tunnel->hlen);
-	else
+		mtu -= dev->type == ARPHRD_ETHER ? dev->hard_header_len : 0;
+	} else {
 		mtu = skb_dst(skb) ? dst_mtu(skb_dst(skb)) : dev->mtu;
+	}
 
 	skb_dst_update_pmtu_no_confirm(skb, mtu);
 
@@ -601,10 +609,10 @@ void ip_md_tunnel_xmit(struct sk_buff *skb, struct net_device *dev, u8 proto)
 	else if (skb->protocol == htons(ETH_P_IP))
 		df = inner_iph->frag_off & htons(IP_DF);
 	headroom += LL_RESERVED_SPACE(rt->dst.dev) + rt->dst.header_len;
-	if (headroom > dev->needed_headroom)
-		dev->needed_headroom = headroom;
+	if (headroom > READ_ONCE(dev->needed_headroom))
+		WRITE_ONCE(dev->needed_headroom, headroom);
 
-	if (skb_cow_head(skb, dev->needed_headroom)) {
+	if (skb_cow_head(skb, READ_ONCE(dev->needed_headroom))) {
 		ip_rt_put(rt);
 		goto tx_dropped;
 	}
@@ -769,10 +777,10 @@ void ip_tunnel_xmit(struct sk_buff *skb, struct net_device *dev,
 
 	max_headroom = LL_RESERVED_SPACE(rt->dst.dev) + sizeof(struct iphdr)
 			+ rt->dst.header_len + ip_encap_hlen(&tunnel->encap);
-	if (max_headroom > dev->needed_headroom)
-		dev->needed_headroom = max_headroom;
+	if (max_headroom > READ_ONCE(dev->needed_headroom))
+		WRITE_ONCE(dev->needed_headroom, max_headroom);
 
-	if (skb_cow_head(skb, dev->needed_headroom)) {
+	if (skb_cow_head(skb, READ_ONCE(dev->needed_headroom))) {
 		ip_rt_put(rt);
 		dev->stats.tx_dropped++;
 		kfree_skb(skb);
@@ -935,6 +943,9 @@ int __ip_tunnel_change_mtu(struct net_device *dev, int new_mtu, bool strict)
 	struct ip_tunnel *tunnel = netdev_priv(dev);
 	int t_hlen = tunnel->hlen + sizeof(struct iphdr);
 	int max_mtu = IP_MAX_MTU - t_hlen;
+
+	if (dev->type == ARPHRD_ETHER)
+		max_mtu -= dev->hard_header_len;
 
 	if (new_mtu < ETH_MIN_MTU)
 		return -EINVAL;
@@ -1112,6 +1123,9 @@ int ip_tunnel_newlink(struct net_device *dev, struct nlattr *tb[],
 	mtu = ip_tunnel_bind_dev(dev);
 	if (tb[IFLA_MTU]) {
 		unsigned int max = IP_MAX_MTU - (nt->hlen + sizeof(struct iphdr));
+
+		if (dev->type == ARPHRD_ETHER)
+			max -= dev->hard_header_len;
 
 		mtu = clamp(dev->mtu, (unsigned int)ETH_MIN_MTU, max);
 	}
