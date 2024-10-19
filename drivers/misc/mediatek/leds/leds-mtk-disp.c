@@ -225,7 +225,7 @@ int mt_leds_brightness_set(char *name, int level)
 {
 	struct mtk_led_data *led_dat;
 	int index, led_Level;
-	pr_info("%s add for leave==%d\n", __func__,level);
+	pr_debug("%s add for leave==%d\n", __func__,level);
 	index = getLedDespIndex(name);
 	if (index < 0) {
 		pr_notice("can not find leds by led_desp %s", name);
