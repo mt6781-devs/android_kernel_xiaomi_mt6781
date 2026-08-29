@@ -771,7 +771,7 @@ static int get_md1_tx_power_by_table(u32 *dbm_mem, u32 *old_dbm_mem,
 }
 
 static int get_md1_tx_power_by_rat(u32 *dbm_mem, u32 *old_dbm_mem,
-	unsigned int rat, unsigned int power_type,
+	enum tx_rat_type rat, enum mdpm_power_type power_type,
 	struct md_power_status *md_power_s)
 {
 	int power;
