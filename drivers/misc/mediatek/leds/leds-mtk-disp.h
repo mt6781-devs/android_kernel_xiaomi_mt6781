@@ -21,4 +21,5 @@ int mt_leds_brightness_set(char *name, int bl_1024);
 int mt_leds_max_brightness_set(char *name, int percent, bool enable);
 
 
-extern int mtkfb_set_backlight_level(int level, int div);
+extern int mtkfb_set_backlight_level(unsigned int level);
+
